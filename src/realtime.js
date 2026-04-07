@@ -71,6 +71,7 @@ async function fetchRealtime(db, cityName, url) {
       modified_count: modifiedCount,
       entities: feed.entity.length,
       duration_ms: Math.round(performance.now() - t),
+      Note: `Aggiornamento realtime per ${cityName}: ${modifiedCount} trip aggiornati su ${feed.entity.length} entità`,
     });
 
   } catch (err) {
@@ -78,6 +79,7 @@ async function fetchRealtime(db, cityName, url) {
       city: cityName,
       error: err.message,
       duration_ms: Math.round(performance.now() - t),
+      Note: `Errore realtime per ${cityName}: ${err.message}`,
     });
   }
 }
@@ -85,7 +87,7 @@ async function fetchRealtime(db, cityName, url) {
 async function main() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
-  await log('realtime_start', { cities: CITIES.map(c => c.name) });
+  await log('realtime_start', { cities: CITIES.map(c => c.name), Note: `Worker avviato per: ${CITIES.map(c => c.name).join(', ')}` });
 
   const dbs = Object.fromEntries(CITIES.map(c => [c.name, client.db(c.name)]));
 
@@ -98,6 +100,6 @@ async function main() {
 }
 
 main().catch(async (err) => {
-  await log('realtime_fatal', { error: err.message });
+  await log('realtime_fatal', { error: err.message, Note: `Errore fatale worker: ${err.message}` });
   process.exit(1);
 });
