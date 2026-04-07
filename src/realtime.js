@@ -13,9 +13,9 @@ const { log } = require('./logger');
 const MONGO_URI = process.env.REMOTE_URI;
 if (!MONGO_URI) { console.error('REMOTE_URI non impostato'); process.exit(1); }
 
-const CITIES = ['Torino', 'Roma', 'Firenze']
-  .map(name => ({ name, url: process.env[`REALTIME_URL_${name.toUpperCase()}`] }))
-  .filter(c => c.url);
+const CITIES = Object.entries(process.env)
+  .filter(([key]) => key.startsWith('REALTIME_URL_'))
+  .map(([key, url]) => ({ name: key.replace('REALTIME_URL_', '').charAt(0) + key.replace('REALTIME_URL_', '').slice(1).toLowerCase(), url }));
 
 if (CITIES.length === 0) {
   console.error('Nessuna REALTIME_URL_<CITTÀ> configurata');
