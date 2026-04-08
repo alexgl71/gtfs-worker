@@ -1,7 +1,7 @@
 // Aggiorna daily_trips su Atlas con delay e posizioni GTFS-RT ogni 30 secondi.
+// Aggiorna collection alerts per ogni città ogni 10 minuti.
 // Attivo solo dalle 07:00 alle 23:00 UTC+2.
-// Env vars richieste: REMOTE_URI + REALTIME_URL_<CITTÀ> e/o VEHICLES_URL_<CITTÀ>.
-// Es: REALTIME_URL_TORINO, VEHICLES_URL_TORINO, REALTIME_URL_BARI (risponde JSON)
+// Env vars: REMOTE_URI + REALTIME_URL_* + VEHICLES_URL_* + ALERTS_URL_*
 
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
@@ -26,8 +26,12 @@ const VEHICLE_CITIES = Object.entries(process.env)
   .filter(([key]) => key.startsWith('VEHICLES_URL_'))
   .map(([key, url]) => ({ name: cityName(key, 'VEHICLES_URL_'), url }));
 
-if (CITIES.length === 0 && VEHICLE_CITIES.length === 0) {
-  console.error('Nessuna REALTIME_URL_* o VEHICLES_URL_* configurata');
+const ALERT_CITIES = Object.entries(process.env)
+  .filter(([key]) => key.startsWith('ALERTS_URL_'))
+  .map(([key, url]) => ({ name: cityName(key, 'ALERTS_URL_'), url }));
+
+if (CITIES.length === 0 && VEHICLE_CITIES.length === 0 && ALERT_CITIES.length === 0) {
+  console.error('Nessuna REALTIME_URL_*, VEHICLES_URL_* o ALERTS_URL_* configurata');
   process.exit(1);
 }
 
@@ -40,6 +44,14 @@ function isOperatingHours() {
 const JSON_REALTIME_CITIES = new Set(['Bari']);
 // Città che espongono il feed VehiclePosition in JSON invece che protobuf
 const JSON_VEHICLES_CITIES = new Set(['Bari']);
+// Città che espongono il feed Alerts in JSON invece che protobuf
+const JSON_ALERTS_CITIES = new Set(['Bari']);
+
+function translate(translatedString, lang = 'it') {
+  const list = translatedString?.translation;
+  if (!list?.length) return null;
+  return (list.find(t => t.language === lang) ?? list[0]).text ?? null;
+}
 
 function parseUpdates(cityName, response) {
   if (JSON_REALTIME_CITIES.has(cityName)) {
@@ -191,28 +203,110 @@ async function fetchVehicles(db, cityName, url) {
   }
 }
 
+async function fetchAlerts(db, cityName, url) {
+  const t = performance.now();
+  try {
+    const isJson = JSON_ALERTS_CITIES.has(cityName);
+    const response = await axios.get(url, {
+      responseType: isJson ? 'json' : 'arraybuffer',
+      timeout: 30000,
+      headers: { 'User-Agent': 'gtfs-worker/1.0' },
+    });
+
+    const alerts = [];
+
+    if (isJson) {
+      for (const entity of response.data?.Entities ?? []) {
+        const a = entity.Alert;
+        if (!a) continue;
+        alerts.push({
+          alert_id:        entity.Id,
+          active_period:   (a.ActivePeriod ?? []).map(p => ({ start: p.Start ?? null, end: p.End ?? null })),
+          informed_entity: (a.InformedEntity ?? []).map(ie => ({
+            route_id: ie.RouteId ?? null,
+            trip_id:  ie.Trip?.TripId ?? null,
+            stop_id:  ie.StopId ?? null,
+          })),
+          cause:            a.Cause ?? null,
+          effect:           a.Effect ?? null,
+          header:           a.HeaderText?.Translation?.[0]?.Text ?? null,
+          description:      a.DescriptionText?.Translation?.[0]?.Text ?? null,
+          url:              a.Url?.Translation?.[0]?.Text ?? null,
+        });
+      }
+    } else {
+      const feed = FeedMessage.decode(new Uint8Array(response.data));
+      for (const entity of feed.entity) {
+        const a = entity.alert;
+        if (!a) continue;
+        alerts.push({
+          alert_id:        entity.id,
+          active_period:   (a.activePeriod ?? []).map(p => ({ start: p.start ?? null, end: p.end ?? null })),
+          informed_entity: (a.informedEntity ?? []).map(ie => ({
+            route_id: ie.routeId ?? null,
+            trip_id:  ie.trip?.tripId ?? null,
+            stop_id:  ie.stopId ?? null,
+          })),
+          cause:       a.cause ?? null,
+          effect:      a.effect ?? null,
+          header:      translate(a.headerText),
+          description: translate(a.descriptionText),
+          url:         translate(a.url),
+        });
+      }
+    }
+
+    const col = db.collection('alerts');
+    await col.deleteMany({});
+    if (alerts.length > 0) await col.insertMany(alerts);
+
+    await log('alerts_update', {
+      city: cityName,
+      count: alerts.length,
+      duration_ms: Math.round(performance.now() - t),
+      Note: `Alert per ${cityName}: ${alerts.length} inseriti`,
+    });
+
+  } catch (err) {
+    await logError('alerts_error', {
+      city: cityName,
+      error: err.message,
+      duration_ms: Math.round(performance.now() - t),
+      Note: `Errore alert per ${cityName}: ${err.message}`,
+    });
+  }
+}
+
 async function main() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
 
-  const allCityNames = [...new Set([...CITIES, ...VEHICLE_CITIES].map(c => c.name))];
+  const allCityNames = [...new Set([...CITIES, ...VEHICLE_CITIES, ...ALERT_CITIES].map(c => c.name))];
   await log('realtime_start', {
     realtime_cities: CITIES.map(c => c.name),
     vehicles_cities: VEHICLE_CITIES.map(c => c.name),
-    Note: `Worker avviato per realtime: [${CITIES.map(c => c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c => c.name).join(', ')}]`,
+    alert_cities:    ALERT_CITIES.map(c => c.name),
+    Note: `Worker avviato — realtime: [${CITIES.map(c => c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c => c.name).join(', ')}] alert: [${ALERT_CITIES.map(c => c.name).join(', ')}]`,
   });
 
   const dbs = Object.fromEntries(allCityNames.map(name => [name, client.db(name)]));
 
-  async function runAll() {
+  async function runRealtime() {
     await Promise.allSettled([
       ...CITIES.map(c => fetchRealtime(dbs[c.name], c.name, c.url)),
       ...VEHICLE_CITIES.map(c => fetchVehicles(dbs[c.name], c.name, c.url)),
     ]);
   }
 
-  if (isOperatingHours()) await runAll();
-  setInterval(() => { if (isOperatingHours()) runAll(); }, 30000);
+  async function runAlerts() {
+    await Promise.allSettled(
+      ALERT_CITIES.map(c => fetchAlerts(dbs[c.name], c.name, c.url))
+    );
+  }
+
+  if (isOperatingHours()) { await runRealtime(); await runAlerts(); }
+  setInterval(() => { if (isOperatingHours()) runRealtime(); }, 30000);
+  setInterval(() => { if (isOperatingHours()) runAlerts(); }, 600000);
 }
 
 main().catch(async (err) => {
