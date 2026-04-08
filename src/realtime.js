@@ -47,11 +47,6 @@ const JSON_VEHICLES_CITIES = new Set(['Bari']);
 // Città che espongono il feed Alerts in JSON invece che protobuf
 const JSON_ALERTS_CITIES = new Set(['Bari']);
 
-function translate(translatedString, lang = 'it') {
-  const list = translatedString?.translation;
-  if (!list?.length) return null;
-  return (list.find(t => t.language === lang) ?? list[0]).text ?? null;
-}
 
 function parseUpdates(cityName, response) {
   if (JSON_REALTIME_CITIES.has(cityName)) {
@@ -219,40 +214,22 @@ async function fetchAlerts(db, cityName, url) {
       for (const entity of response.data?.Entities ?? []) {
         const a = entity.Alert;
         if (!a) continue;
-        alerts.push({
-          alert_id:        entity.Id,
-          active_period:   (a.ActivePeriod ?? []).map(p => ({ start: p.Start ?? null, end: p.End ?? null })),
-          informed_entity: (a.InformedEntity ?? []).map(ie => ({
-            route_id: ie.RouteId ?? null,
-            trip_id:  ie.Trip?.TripId ?? null,
-            stop_id:  ie.StopId ?? null,
-          })),
-          cause:            a.Cause ?? null,
-          effect:           a.Effect ?? null,
-          header:           a.HeaderText?.Translation?.[0]?.Text ?? null,
-          description:      a.DescriptionText?.Translation?.[0]?.Text ?? null,
-          url:              a.Url?.Translation?.[0]?.Text ?? null,
-        });
+        const route_ids = (a.InformedEntity ?? [])
+          .map(ie => ie.RouteId)
+          .filter(Boolean);
+        if (route_ids.length === 0) continue;
+        alerts.push({ alert_id: entity.Id, route_ids });
       }
     } else {
       const feed = FeedMessage.decode(new Uint8Array(response.data));
       for (const entity of feed.entity) {
         const a = entity.alert;
         if (!a) continue;
-        alerts.push({
-          alert_id:        entity.id,
-          active_period:   (a.activePeriod ?? []).map(p => ({ start: p.start ?? null, end: p.end ?? null })),
-          informed_entity: (a.informedEntity ?? []).map(ie => ({
-            route_id: ie.routeId ?? null,
-            trip_id:  ie.trip?.tripId ?? null,
-            stop_id:  ie.stopId ?? null,
-          })),
-          cause:       a.cause ?? null,
-          effect:      a.effect ?? null,
-          header:      translate(a.headerText),
-          description: translate(a.descriptionText),
-          url:         translate(a.url),
-        });
+        const route_ids = (a.informedEntity ?? [])
+          .map(ie => ie.routeId)
+          .filter(Boolean);
+        if (route_ids.length === 0) continue;
+        alerts.push({ alert_id: entity.id, route_ids });
       }
     }
 
