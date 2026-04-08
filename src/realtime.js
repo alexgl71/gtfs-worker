@@ -8,7 +8,7 @@ const { MongoClient } = require('mongodb');
 const axios = require('axios');
 const GtfsRealtime = require('gtfs-realtime-bindings');
 const FeedMessage = GtfsRealtime.transit_realtime.FeedMessage;
-const { log } = require('./logger');
+const { log, logError } = require('./logger');
 
 const MONGO_URI = process.env.REMOTE_URI;
 if (!MONGO_URI) { console.error('REMOTE_URI non impostato'); process.exit(1); }
@@ -43,8 +43,7 @@ const JSON_VEHICLES_CITIES = new Set(['Bari']);
 
 function parseUpdates(cityName, response) {
   if (JSON_REALTIME_CITIES.has(cityName)) {
-    const body = JSON.parse(Buffer.from(response.data).toString('utf8'));
-    const entities = body?.Entities ?? [];
+    const entities = response.data?.Entities ?? [];
     return {
       count: entities.length,
       updates: entities
@@ -73,8 +72,9 @@ function parseUpdates(cityName, response) {
 async function fetchRealtime(db, cityName, url) {
   const t = performance.now();
   try {
+    const isJson = JSON_REALTIME_CITIES.has(cityName);
     const response = await axios.get(url, {
-      responseType: 'arraybuffer',
+      responseType: isJson ? 'json' : 'arraybuffer',
       timeout: 30000,
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
@@ -104,7 +104,7 @@ async function fetchRealtime(db, cityName, url) {
     });
 
   } catch (err) {
-    await log('realtime_error', {
+    await logError('realtime_error', {
       city: cityName,
       error: err.message,
       duration_ms: Math.round(performance.now() - t),
@@ -115,8 +115,7 @@ async function fetchRealtime(db, cityName, url) {
 
 function parseVehicleUpdates(cityName, response) {
   if (JSON_VEHICLES_CITIES.has(cityName)) {
-    const body = JSON.parse(Buffer.from(response.data).toString('utf8'));
-    const entities = body?.Entities ?? [];
+    const entities = response.data?.Entities ?? [];
     return {
       count: entities.length,
       updates: entities
@@ -148,8 +147,9 @@ function parseVehicleUpdates(cityName, response) {
 async function fetchVehicles(db, cityName, url) {
   const t = performance.now();
   try {
+    const isJson = JSON_VEHICLES_CITIES.has(cityName);
     const response = await axios.get(url, {
-      responseType: 'arraybuffer',
+      responseType: isJson ? 'json' : 'arraybuffer',
       timeout: 30000,
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
@@ -182,7 +182,7 @@ async function fetchVehicles(db, cityName, url) {
     });
 
   } catch (err) {
-    await log('vehicles_error', {
+    await logError('vehicles_error', {
       city: cityName,
       error: err.message,
       duration_ms: Math.round(performance.now() - t),
@@ -216,6 +216,6 @@ async function main() {
 }
 
 main().catch(async (err) => {
-  await log('realtime_fatal', { error: err.message, Note: `Errore fatale worker: ${err.message}` });
+  await logError('realtime_fatal', { error: err.message, Note: `Errore fatale worker: ${err.message}` });
   process.exit(1);
 });

@@ -1,11 +1,14 @@
 const { MongoClient } = require('mongodb');
 
 let logsCollection = null;
+let errorsCollection = null;
 
 async function init() {
   const client = new MongoClient(process.env.REMOTE_URI);
   await client.connect();
-  logsCollection = client.db('general').collection('logs');
+  const db = client.db('general');
+  logsCollection = db.collection('logs');
+  errorsCollection = db.collection('errors');
 }
 
 async function log(type, data = {}) {
@@ -15,4 +18,11 @@ async function log(type, data = {}) {
   } catch (_) {}
 }
 
-module.exports = { log };
+async function logError(type, data = {}) {
+  try {
+    if (!errorsCollection) await init();
+    await errorsCollection.insertOne({ ts: new Date(), type, ...data });
+  } catch (_) {}
+}
+
+module.exports = { log, logError };
