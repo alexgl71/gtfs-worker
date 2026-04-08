@@ -1,7 +1,7 @@
-// Aggiorna daily_trips su Atlas con i delay GTFS-RT ogni 30 secondi.
+// Aggiorna daily_trips su Atlas con delay e posizioni GTFS-RT ogni 30 secondi.
 // Attivo solo dalle 07:00 alle 23:00 UTC+2.
-// Env vars richieste: REMOTE_URI + REALTIME_URL_<CITTÀ> per ogni città attiva.
-// Es: REALTIME_URL_TORINO, REALTIME_URL_FIRENZE
+// Env vars richieste: REMOTE_URI + REALTIME_URL_<CITTÀ> e/o VEHICLES_URL_<CITTÀ>.
+// Es: REALTIME_URL_TORINO, VEHICLES_URL_TORINO
 
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
@@ -13,12 +13,21 @@ const { log } = require('./logger');
 const MONGO_URI = process.env.REMOTE_URI;
 if (!MONGO_URI) { console.error('REMOTE_URI non impostato'); process.exit(1); }
 
+function cityName(key, prefix) {
+  const raw = key.replace(prefix, '');
+  return raw.charAt(0) + raw.slice(1).toLowerCase();
+}
+
 const CITIES = Object.entries(process.env)
   .filter(([key]) => key.startsWith('REALTIME_URL_'))
-  .map(([key, url]) => ({ name: key.replace('REALTIME_URL_', '').charAt(0) + key.replace('REALTIME_URL_', '').slice(1).toLowerCase(), url }));
+  .map(([key, url]) => ({ name: cityName(key, 'REALTIME_URL_'), url }));
 
-if (CITIES.length === 0) {
-  console.error('Nessuna REALTIME_URL_<CITTÀ> configurata');
+const VEHICLE_CITIES = Object.entries(process.env)
+  .filter(([key]) => key.startsWith('VEHICLES_URL_'))
+  .map(([key, url]) => ({ name: cityName(key, 'VEHICLES_URL_'), url }));
+
+if (CITIES.length === 0 && VEHICLE_CITIES.length === 0) {
+  console.error('Nessuna REALTIME_URL_<CITTÀ> o VEHICLES_URL_<CITTÀ> configurata');
   process.exit(1);
 }
 
@@ -84,15 +93,83 @@ async function fetchRealtime(db, cityName, url) {
   }
 }
 
+async function fetchVehicles(db, cityName, url) {
+  const t = performance.now();
+  try {
+    const response = await axios.get(url, {
+      responseType: 'arraybuffer',
+      timeout: 30000,
+      headers: { 'User-Agent': 'gtfs-worker/1.0' },
+    });
+
+    const feed = FeedMessage.decode(new Uint8Array(response.data));
+    const updates = [];
+
+    for (const entity of feed.entity) {
+      const vp = entity.vehicle;
+      if (!vp?.trip?.tripId || !vp.position) continue;
+      const { latitude, longitude, bearing } = vp.position;
+      if (latitude == null || longitude == null) continue;
+      updates.push({
+        trip_id:  vp.trip.tripId.trim(),
+        position: { lat: latitude, lng: longitude },
+        bearing:  bearing ?? null,
+      });
+    }
+
+    const trips = db.collection('daily_trips');
+    await trips.updateMany({ position: { $exists: true } }, { $unset: { position: '', bearing: '' } });
+
+    let modifiedCount = 0;
+    if (updates.length > 0) {
+      const result = await trips.bulkWrite(
+        updates.map(u => ({
+          updateOne: {
+            filter: { trip_id: u.trip_id },
+            update: { $set: { position: u.position, bearing: u.bearing } },
+          },
+        })),
+        { ordered: false }
+      );
+      modifiedCount = result.modifiedCount;
+    }
+
+    await log('vehicles_update', {
+      city: cityName,
+      modified_count: modifiedCount,
+      entities: feed.entity.length,
+      duration_ms: Math.round(performance.now() - t),
+      Note: `Posizioni veicoli per ${cityName}: ${modifiedCount} trip aggiornati su ${feed.entity.length} entità`,
+    });
+
+  } catch (err) {
+    await log('vehicles_error', {
+      city: cityName,
+      error: err.message,
+      duration_ms: Math.round(performance.now() - t),
+      Note: `Errore posizioni veicoli per ${cityName}: ${err.message}`,
+    });
+  }
+}
+
 async function main() {
   const client = new MongoClient(MONGO_URI);
   await client.connect();
-  await log('realtime_start', { cities: CITIES.map(c => c.name), Note: `Worker avviato per: ${CITIES.map(c => c.name).join(', ')}` });
 
-  const dbs = Object.fromEntries(CITIES.map(c => [c.name, client.db(c.name)]));
+  const allCityNames = [...new Set([...CITIES, ...VEHICLE_CITIES].map(c => c.name))];
+  await log('realtime_start', {
+    realtime_cities: CITIES.map(c => c.name),
+    vehicles_cities: VEHICLE_CITIES.map(c => c.name),
+    Note: `Worker avviato per realtime: [${CITIES.map(c => c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c => c.name).join(', ')}]`,
+  });
+
+  const dbs = Object.fromEntries(allCityNames.map(name => [name, client.db(name)]));
 
   async function runAll() {
-    await Promise.allSettled(CITIES.map(c => fetchRealtime(dbs[c.name], c.name, c.url)));
+    await Promise.allSettled([
+      ...CITIES.map(c => fetchRealtime(dbs[c.name], c.name, c.url)),
+      ...VEHICLE_CITIES.map(c => fetchVehicles(dbs[c.name], c.name, c.url)),
+    ]);
   }
 
   if (isOperatingHours()) await runAll();
