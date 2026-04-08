@@ -38,6 +38,8 @@ function isOperatingHours() {
 
 // Città che espongono il feed TripUpdates in JSON invece che protobuf
 const JSON_REALTIME_CITIES = new Set(['Bari']);
+// Città che espongono il feed VehiclePosition in JSON invece che protobuf
+const JSON_VEHICLES_CITIES = new Set(['Bari']);
 
 function parseUpdates(cityName, response) {
   if (JSON_REALTIME_CITIES.has(cityName)) {
@@ -111,6 +113,38 @@ async function fetchRealtime(db, cityName, url) {
   }
 }
 
+function parseVehicleUpdates(cityName, response) {
+  if (JSON_VEHICLES_CITIES.has(cityName)) {
+    const body = JSON.parse(Buffer.from(response.data).toString('utf8'));
+    const entities = body?.Entities ?? [];
+    return {
+      count: entities.length,
+      updates: entities
+        .filter(e => e.Vehicle?.Trip?.TripId && e.Vehicle.Position?.Latitude != null)
+        .map(e => ({
+          trip_id:  e.Vehicle.Trip.TripId.trim(),
+          position: { lat: e.Vehicle.Position.Latitude, lng: e.Vehicle.Position.Longitude },
+          bearing:  null,
+        })),
+    };
+  }
+
+  const feed = FeedMessage.decode(new Uint8Array(response.data));
+  const updates = [];
+  for (const entity of feed.entity) {
+    const vp = entity.vehicle;
+    if (!vp?.trip?.tripId || !vp.position) continue;
+    const { latitude, longitude, bearing } = vp.position;
+    if (latitude == null || longitude == null) continue;
+    updates.push({
+      trip_id:  vp.trip.tripId.trim(),
+      position: { lat: latitude, lng: longitude },
+      bearing:  bearing ?? null,
+    });
+  }
+  return { count: feed.entity.length, updates };
+}
+
 async function fetchVehicles(db, cityName, url) {
   const t = performance.now();
   try {
@@ -120,20 +154,7 @@ async function fetchVehicles(db, cityName, url) {
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
 
-    const feed = FeedMessage.decode(new Uint8Array(response.data));
-    const updates = [];
-
-    for (const entity of feed.entity) {
-      const vp = entity.vehicle;
-      if (!vp?.trip?.tripId || !vp.position) continue;
-      const { latitude, longitude, bearing } = vp.position;
-      if (latitude == null || longitude == null) continue;
-      updates.push({
-        trip_id:  vp.trip.tripId.trim(),
-        position: { lat: latitude, lng: longitude },
-        bearing:  bearing ?? null,
-      });
-    }
+    const { count, updates } = parseVehicleUpdates(cityName, response);
 
     const trips = db.collection('daily_trips');
     await trips.updateMany({ position: { $exists: true } }, { $unset: { position: '', bearing: '' } });
@@ -155,9 +176,9 @@ async function fetchVehicles(db, cityName, url) {
     await log('vehicles_update', {
       city: cityName,
       modified_count: modifiedCount,
-      entities: feed.entity.length,
+      entities: count,
       duration_ms: Math.round(performance.now() - t),
-      Note: `Posizioni veicoli per ${cityName}: ${modifiedCount} trip aggiornati su ${feed.entity.length} entità`,
+      Note: `Posizioni veicoli per ${cityName}: ${modifiedCount} trip aggiornati su ${count} entità`,
     });
 
   } catch (err) {
