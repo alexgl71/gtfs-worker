@@ -36,15 +36,12 @@ function isOperatingHours() {
   return hourUTC2 >= 7 && hourUTC2 < 23;
 }
 
-function parseUpdates(response) {
-  const contentType = response.headers['content-type'] ?? '';
-  const isJson = contentType.includes('json') ||
-    (response.data instanceof Buffer && response.data[0] === 0x7b); // '{' byte
+// Città che espongono il feed TripUpdates in JSON invece che protobuf
+const JSON_REALTIME_CITIES = new Set(['Bari']);
 
-  if (isJson) {
-    const body = typeof response.data === 'string'
-      ? JSON.parse(response.data)
-      : JSON.parse(Buffer.from(response.data).toString('utf8'));
+function parseUpdates(cityName, response) {
+  if (JSON_REALTIME_CITIES.has(cityName)) {
+    const body = JSON.parse(Buffer.from(response.data).toString('utf8'));
     const entities = body?.Entities ?? [];
     return {
       count: entities.length,
@@ -80,7 +77,7 @@ async function fetchRealtime(db, cityName, url) {
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
 
-    const { count, updates } = parseUpdates(response);
+    const { count, updates } = parseUpdates(cityName, response);
 
     const trips = db.collection('daily_trips');
     await trips.updateMany({ delay_sec: { $exists: true } }, { $unset: { delay_sec: '' } });
