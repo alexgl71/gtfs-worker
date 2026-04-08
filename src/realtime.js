@@ -1,7 +1,7 @@
 // Aggiorna daily_trips su Atlas con delay e posizioni GTFS-RT ogni 30 secondi.
 // Attivo solo dalle 07:00 alle 23:00 UTC+2.
 // Env vars richieste: REMOTE_URI + REALTIME_URL_<CITTÀ> e/o VEHICLES_URL_<CITTÀ>.
-// Es: REALTIME_URL_TORINO, VEHICLES_URL_TORINO
+// Es: REALTIME_URL_TORINO, VEHICLES_URL_TORINO, REALTIME_URL_BARI (risponde JSON)
 
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
@@ -27,13 +27,48 @@ const VEHICLE_CITIES = Object.entries(process.env)
   .map(([key, url]) => ({ name: cityName(key, 'VEHICLES_URL_'), url }));
 
 if (CITIES.length === 0 && VEHICLE_CITIES.length === 0) {
-  console.error('Nessuna REALTIME_URL_<CITTÀ> o VEHICLES_URL_<CITTÀ> configurata');
+  console.error('Nessuna REALTIME_URL_* o VEHICLES_URL_* configurata');
   process.exit(1);
 }
 
 function isOperatingHours() {
   const hourUTC2 = (new Date().getUTCHours() + 2) % 24;
   return hourUTC2 >= 7 && hourUTC2 < 23;
+}
+
+function parseUpdates(response) {
+  const contentType = response.headers['content-type'] ?? '';
+  const isJson = contentType.includes('json') ||
+    (response.data instanceof Buffer && response.data[0] === 0x7b); // '{' byte
+
+  if (isJson) {
+    const body = typeof response.data === 'string'
+      ? JSON.parse(response.data)
+      : JSON.parse(Buffer.from(response.data).toString('utf8'));
+    const entities = body?.Entities ?? [];
+    return {
+      count: entities.length,
+      updates: entities
+        .filter(e => e.TripUpdate?.Trip?.TripId && e.TripUpdate.Delay != null)
+        .map(e => ({ trip_id: e.TripUpdate.Trip.TripId.trim(), delay_sec: e.TripUpdate.Delay })),
+    };
+  }
+
+  const feed = FeedMessage.decode(new Uint8Array(response.data));
+  const updates = [];
+  for (const entity of feed.entity) {
+    const tripUpdate = entity.tripUpdate;
+    if (!tripUpdate?.trip?.tripId || !tripUpdate.stopTimeUpdate?.length) continue;
+    const best = [...tripUpdate.stopTimeUpdate]
+      .filter(stu => stu.stopSequence != null && (stu.arrival?.delay != null || stu.departure?.delay != null))
+      .sort((a, b) => b.stopSequence - a.stopSequence)[0];
+    if (!best) continue;
+    updates.push({
+      trip_id:   tripUpdate.trip.tripId.trim(),
+      delay_sec: best.arrival?.delay ?? best.departure?.delay,
+    });
+  }
+  return { count: feed.entity.length, updates };
 }
 
 async function fetchRealtime(db, cityName, url) {
@@ -45,21 +80,7 @@ async function fetchRealtime(db, cityName, url) {
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
 
-    const feed = FeedMessage.decode(new Uint8Array(response.data));
-    const updates = [];
-
-    for (const entity of feed.entity) {
-      const tripUpdate = entity.tripUpdate;
-      if (!tripUpdate?.trip?.tripId || !tripUpdate.stopTimeUpdate?.length) continue;
-      const best = [...tripUpdate.stopTimeUpdate]
-        .filter(stu => stu.stopSequence != null && (stu.arrival?.delay != null || stu.departure?.delay != null))
-        .sort((a, b) => b.stopSequence - a.stopSequence)[0];
-      if (!best) continue;
-      updates.push({
-        trip_id:   tripUpdate.trip.tripId.trim(),
-        delay_sec: best.arrival?.delay ?? best.departure?.delay,
-      });
-    }
+    const { count, updates } = parseUpdates(response);
 
     const trips = db.collection('daily_trips');
     await trips.updateMany({ delay_sec: { $exists: true } }, { $unset: { delay_sec: '' } });
@@ -78,9 +99,9 @@ async function fetchRealtime(db, cityName, url) {
     await log('realtime_update', {
       city: cityName,
       modified_count: modifiedCount,
-      entities: feed.entity.length,
+      entities: count,
       duration_ms: Math.round(performance.now() - t),
-      Note: `Aggiornamento realtime per ${cityName}: ${modifiedCount} trip aggiornati su ${feed.entity.length} entità`,
+      Note: `Aggiornamento realtime per ${cityName}: ${modifiedCount} trip aggiornati su ${count} entità`,
     });
 
   } catch (err) {
