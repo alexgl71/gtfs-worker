@@ -214,22 +214,29 @@ async function fetchAlerts(db, cityName, url) {
       for (const entity of response.data?.Entities ?? []) {
         const a = entity.Alert;
         if (!a) continue;
-        const route_ids = (a.InformedEntity ?? [])
-          .map(ie => ie.RouteId)
-          .filter(Boolean);
+        const route_ids = (a.InformedEntity ?? []).map(ie => ie.RouteId).filter(Boolean);
         if (route_ids.length === 0) continue;
-        alerts.push({ alert_id: entity.Id, route_ids });
+        alerts.push({
+          alert_id:    entity.Id,
+          route_ids,
+          header:      a.HeaderText?.Translation?.[0]?.Text ?? null,
+          description: a.DescriptionText?.Translation?.[0]?.Text ?? null,
+        });
       }
     } else {
       const feed = FeedMessage.decode(new Uint8Array(response.data));
       for (const entity of feed.entity) {
         const a = entity.alert;
         if (!a) continue;
-        const route_ids = (a.informedEntity ?? [])
-          .map(ie => ie.routeId)
-          .filter(Boolean);
+        const route_ids = (a.informedEntity ?? []).map(ie => ie.routeId).filter(Boolean);
         if (route_ids.length === 0) continue;
-        alerts.push({ alert_id: entity.id, route_ids });
+        const firstText = (ts) => ts?.translation?.[0]?.text ?? null;
+        alerts.push({
+          alert_id:    entity.id,
+          route_ids,
+          header:      firstText(a.headerText),
+          description: firstText(a.descriptionText),
+        });
       }
     }
 
