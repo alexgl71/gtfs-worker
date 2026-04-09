@@ -71,7 +71,7 @@ async function fetchTripUpdates(db, cityName, url) {
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);
-    console.error(`[tripUpdates] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
+    console.log(`[tripUpdates] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('realtime_error', {
       city: cityName,
       error: err.message,

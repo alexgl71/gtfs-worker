@@ -95,7 +95,7 @@ async function fetchAlerts(db, cityName, url) {
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);
-    console.error(`[alerts] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
+    console.log(`[alerts] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('alerts_error', {
       city: cityName,
       error: err.message,

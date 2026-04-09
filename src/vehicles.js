@@ -103,7 +103,7 @@ async function fetchVehicles(db, cityName, url) {
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);
-    console.error(`[vehicles] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
+    console.log(`[vehicles] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('vehicles_error', {
       city: cityName,
       error: err.message,
