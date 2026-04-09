@@ -68,7 +68,7 @@ async function main() {
   }
 
   if (isOperatingHours()) { await runRealtime(); await runAlerts(); }
-  setInterval(() => { if (isOperatingHours()) runRealtime(); }, 30000);
+  setInterval(() => { if (isOperatingHours()) runRealtime(); }, 60000);
   setInterval(() => { if (isOperatingHours()) runAlerts(); }, 600000);
 }
 
