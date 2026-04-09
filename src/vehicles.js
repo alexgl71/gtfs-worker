@@ -10,30 +10,50 @@ function parse(cityName, response) {
     const entities = response.data?.Entities ?? [];
     return {
       count: entities.length,
-      updates: entities
+      vehicles: entities
         .filter(e => e.Vehicle?.Trip?.TripId && e.Vehicle.Position?.Latitude != null)
         .map(e => ({
-          trip_id:  e.Vehicle.Trip.TripId.trim(),
-          position: { lat: e.Vehicle.Position.Latitude, lng: e.Vehicle.Position.Longitude },
-          bearing:  null,
+          id:           e.Id ?? null,
+          label:        e.Vehicle.Vehicle?.Label ?? null,
+          trip_id:      e.Vehicle.Trip.TripId.trim(),
+          route_id:     e.Vehicle.Trip.RouteId ?? null,
+          direction_id: e.Vehicle.Trip.DirectionId?.toString() ?? null,
+          start_time:   e.Vehicle.Trip.StartTime ?? null,
+          start_date:   e.Vehicle.Trip.StartDate ?? null,
+          latitude:     e.Vehicle.Position.Latitude,
+          longitude:    e.Vehicle.Position.Longitude,
+          stop_sequence: e.Vehicle.CurrentStopSequence ?? null,
+          stop_id:      e.Vehicle.StopId ?? null,
+          timestamp:    e.Vehicle.Timestamp ? e.Vehicle.Timestamp * 1000 : null,
+          bearing:      e.Vehicle.Position.Bearing ?? null,
         })),
     };
   }
 
   const feed = FeedMessage.decode(new Uint8Array(response.data));
-  const updates = [];
+  const vehicles = [];
   for (const entity of feed.entity) {
     const vp = entity.vehicle;
     if (!vp?.trip?.tripId || !vp.position) continue;
     const { latitude, longitude, bearing } = vp.position;
     if (latitude == null || longitude == null) continue;
-    updates.push({
-      trip_id:  vp.trip.tripId.trim(),
-      position: { lat: latitude, lng: longitude },
-      bearing:  bearing ?? null,
+    vehicles.push({
+      id:           entity.id ?? null,
+      label:        vp.vehicle?.label ?? null,
+      trip_id:      vp.trip.tripId.trim(),
+      route_id:     vp.trip.routeId ?? null,
+      direction_id: vp.trip.directionId?.toString() ?? null,
+      start_time:   vp.trip.startTime ?? null,
+      start_date:   vp.trip.startDate ?? null,
+      latitude,
+      longitude,
+      stop_sequence: vp.currentStopSequence ?? null,
+      stop_id:      vp.stopId ?? null,
+      timestamp:    vp.timestamp ? Number(vp.timestamp) * 1000 : null,
+      bearing:      bearing ?? null,
     });
   }
-  return { count: feed.entity.length, updates };
+  return { count: feed.entity.length, vehicles };
 }
 
 async function fetchVehicles(db, cityName, url) {
@@ -46,31 +66,37 @@ async function fetchVehicles(db, cityName, url) {
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
 
-    const { count, updates } = parse(cityName, response);
+    const { count, vehicles } = parse(cityName, response);
 
+    // Aggiorna daily_trips con position+bearing (usato dal router)
     const trips = db.collection('daily_trips');
     await trips.updateMany({ position: { $exists: true } }, { $unset: { position: '', bearing: '' } });
-
-    let modifiedCount = 0;
-    if (updates.length > 0) {
-      const result = await trips.bulkWrite(
-        updates.map(u => ({
+    if (vehicles.length > 0) {
+      await trips.bulkWrite(
+        vehicles.map(v => ({
           updateOne: {
-            filter: { trip_id: u.trip_id },
-            update: { $set: { position: u.position, bearing: u.bearing } },
+            filter: { trip_id: v.trip_id },
+            update: { $set: { position: { lat: v.latitude, lng: v.longitude }, bearing: v.bearing } },
           },
         })),
         { ordered: false }
       );
-      modifiedCount = result.modifiedCount;
+    }
+
+    // Salva la collection vehicles completa per l'endpoint byroute
+    const col = db.collection('vehicles');
+    await col.deleteMany({});
+    if (vehicles.length > 0) {
+      await col.insertMany(vehicles);
+      await col.createIndex({ route_id: 1 });
     }
 
     await log('vehicles_update', {
       city: cityName,
-      modified_count: modifiedCount,
+      count: vehicles.length,
       entities: count,
       duration_ms: Math.round(performance.now() - t),
-      Note: `Posizioni veicoli per ${cityName}: ${modifiedCount} trip aggiornati su ${count} entità`,
+      Note: `Posizioni veicoli per ${cityName}: ${vehicles.length} veicoli su ${count} entità`,
     });
 
   } catch (err) {
