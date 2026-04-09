@@ -59,19 +59,23 @@ async function fetchTripUpdates(db, cityName, url) {
       modifiedCount = result.modifiedCount;
     }
 
+    const ms = Math.round(performance.now() - t);
+    console.log(`[tripUpdates] ${cityName} — ${modifiedCount}/${count} trip aggiornati (${ms}ms)`);
     await log('realtime_update', {
       city: cityName,
       modified_count: modifiedCount,
       entities: count,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Aggiornamento realtime per ${cityName}: ${modifiedCount} trip aggiornati su ${count} entità`,
     });
 
   } catch (err) {
+    const ms = Math.round(performance.now() - t);
+    console.error(`[tripUpdates] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('realtime_error', {
       city: cityName,
       error: err.message,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Errore realtime per ${cityName}: ${err.message}`,
     });
   }

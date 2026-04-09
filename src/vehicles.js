@@ -91,19 +91,23 @@ async function fetchVehicles(db, cityName, url) {
       await col.createIndex({ route_id: 1 });
     }
 
+    const ms = Math.round(performance.now() - t);
+    console.log(`[vehicles] ${cityName} — ${vehicles.length}/${count} veicoli (${ms}ms)`);
     await log('vehicles_update', {
       city: cityName,
       count: vehicles.length,
       entities: count,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Posizioni veicoli per ${cityName}: ${vehicles.length} veicoli su ${count} entità`,
     });
 
   } catch (err) {
+    const ms = Math.round(performance.now() - t);
+    console.error(`[vehicles] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('vehicles_error', {
       city: cityName,
       error: err.message,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Errore posizioni veicoli per ${cityName}: ${err.message}`,
     });
   }

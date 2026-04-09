@@ -84,18 +84,22 @@ async function fetchAlerts(db, cityName, url) {
     await col.deleteMany({});
     if (alerts.length > 0) await col.insertMany(alerts);
 
+    const ms = Math.round(performance.now() - t);
+    console.log(`[alerts] ${cityName} — ${alerts.length} alert (${ms}ms)`);
     await log('alerts_update', {
       city: cityName,
       count: alerts.length,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Alert per ${cityName}: ${alerts.length} inseriti`,
     });
 
   } catch (err) {
+    const ms = Math.round(performance.now() - t);
+    console.error(`[alerts] ${cityName} — ERRORE: ${err.message} (${ms}ms)`);
     await logError('alerts_error', {
       city: cityName,
       error: err.message,
-      duration_ms: Math.round(performance.now() - t),
+      duration_ms: ms,
       Note: `Errore alert per ${cityName}: ${err.message}`,
     });
   }

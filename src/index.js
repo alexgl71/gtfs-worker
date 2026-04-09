@@ -46,6 +46,7 @@ async function main() {
   const allNames = [...new Set([...REALTIME_CITIES, ...VEHICLE_CITIES, ...ALERT_CITIES].map(c => c.name))];
   const dbs = Object.fromEntries(allNames.map(name => [name, client.db(name)]));
 
+  console.log(`[worker] Avviato — realtime: [${REALTIME_CITIES.map(c=>c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c=>c.name).join(', ')}] alert: [${ALERT_CITIES.map(c=>c.name).join(', ')}]`);
   await log('realtime_start', {
     realtime_cities: REALTIME_CITIES.map(c => c.name),
     vehicles_cities: VEHICLE_CITIES.map(c => c.name),
