@@ -65,7 +65,10 @@ async function fetchAlerts(db, cityName, url) {
           cause:          CAUSE_NAMES[a.cause] ?? null,
           effect:         EFFECT_NAMES[a.effect] ?? null,
           severity_level: null,
-          active_periods: (a.activePeriod ?? []).map(p => ({ start: p.start ?? null, end: p.end ?? null })),
+          active_periods: (a.activePeriod ?? []).map(p => ({
+            start: p.start != null ? (typeof p.start === 'object' ? p.start.low : p.start) : null,
+            end:   p.end   != null ? (typeof p.end   === 'object' ? p.end.low   : p.end)   : null,
+          })),
           url:            firstText(a.url),
           header:         firstText(a.headerText),
           description:    firstText(a.descriptionText),
