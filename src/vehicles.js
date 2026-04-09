@@ -47,8 +47,8 @@ function parse(cityName, response) {
       start_date:   vp.trip.startDate ?? null,
       latitude,
       longitude,
-      stop_sequence: vp.currentStopSequence ?? null,
-      stop_id:      vp.stopId ?? null,
+      stop_sequence: vp.currentStopSequence || null,
+      stop_id:      vp.stopId || null,
       timestamp:    vp.timestamp ? Number(vp.timestamp) * 1000 : null,
       bearing:      bearing ?? null,
     });
