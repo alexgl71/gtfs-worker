@@ -1,7 +1,7 @@
 const axios = require('axios');
 const GtfsRealtime = require('gtfs-realtime-bindings');
 const FeedMessage = GtfsRealtime.transit_realtime.FeedMessage;
-const { log, logError } = require('./logger');
+const { logError } = require('./logger');
 
 const JSON_CITIES = new Set(['Bari']);
 
@@ -93,13 +93,6 @@ async function fetchVehicles(db, cityName, url) {
 
     const ms = Math.round(performance.now() - t);
     console.log(`[vehicles] ${cityName} — ${vehicles.length}/${count} veicoli (${ms}ms)`);
-    await log('vehicles_update', {
-      city: cityName,
-      count: vehicles.length,
-      entities: count,
-      duration_ms: ms,
-      Note: `Posizioni veicoli per ${cityName}: ${vehicles.length} veicoli su ${count} entità`,
-    });
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);

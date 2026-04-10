@@ -1,7 +1,7 @@
 const axios = require('axios');
 const GtfsRealtime = require('gtfs-realtime-bindings');
 const FeedMessage = GtfsRealtime.transit_realtime.FeedMessage;
-const { log, logError } = require('./logger');
+const { logError } = require('./logger');
 
 const JSON_CITIES = new Set(['Bari']);
 
@@ -61,13 +61,6 @@ async function fetchTripUpdates(db, cityName, url) {
 
     const ms = Math.round(performance.now() - t);
     console.log(`[tripUpdates] ${cityName} — ${modifiedCount}/${count} trip aggiornati (${ms}ms)`);
-    await log('realtime_update', {
-      city: cityName,
-      modified_count: modifiedCount,
-      entities: count,
-      duration_ms: ms,
-      Note: `Aggiornamento realtime per ${cityName}: ${modifiedCount} trip aggiornati su ${count} entità`,
-    });
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);

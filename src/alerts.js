@@ -1,7 +1,7 @@
 const axios = require('axios');
 const GtfsRealtime = require('gtfs-realtime-bindings');
 const FeedMessage = GtfsRealtime.transit_realtime.FeedMessage;
-const { log, logError } = require('./logger');
+const { logError } = require('./logger');
 
 const JSON_CITIES = new Set(['Bari']);
 
@@ -86,12 +86,6 @@ async function fetchAlerts(db, cityName, url) {
 
     const ms = Math.round(performance.now() - t);
     console.log(`[alerts] ${cityName} — ${alerts.length} alert (${ms}ms)`);
-    await log('alerts_update', {
-      city: cityName,
-      count: alerts.length,
-      duration_ms: ms,
-      Note: `Alert per ${cityName}: ${alerts.length} inseriti`,
-    });
 
   } catch (err) {
     const ms = Math.round(performance.now() - t);

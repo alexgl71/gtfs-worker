@@ -4,7 +4,7 @@
 
 require('dotenv').config();
 const { MongoClient } = require('mongodb');
-const { log, logError } = require('./logger');
+const { logError } = require('./logger');
 const { fetchTripUpdates } = require('./tripUpdates');
 const { fetchVehicles }    = require('./vehicles');
 const { fetchAlerts }      = require('./alerts');
@@ -47,12 +47,6 @@ async function main() {
   const dbs = Object.fromEntries(allNames.map(name => [name, client.db(name)]));
 
   console.log(`[worker] Avviato — realtime: [${REALTIME_CITIES.map(c=>c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c=>c.name).join(', ')}] alert: [${ALERT_CITIES.map(c=>c.name).join(', ')}]`);
-  await log('realtime_start', {
-    realtime_cities: REALTIME_CITIES.map(c => c.name),
-    vehicles_cities: VEHICLE_CITIES.map(c => c.name),
-    alert_cities:    ALERT_CITIES.map(c => c.name),
-    Note: `Worker avviato — realtime: [${REALTIME_CITIES.map(c => c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c => c.name).join(', ')}] alert: [${ALERT_CITIES.map(c => c.name).join(', ')}]`,
-  });
 
   async function runRealtime() {
     await Promise.allSettled([
