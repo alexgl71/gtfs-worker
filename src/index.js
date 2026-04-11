@@ -46,6 +46,13 @@ async function main() {
   const allNames = [...new Set([...REALTIME_CITIES, ...VEHICLE_CITIES, ...ALERT_CITIES].map(c => c.name))];
   const dbs = Object.fromEntries(allNames.map(name => [name, client.db(name)]));
 
+  // Crea indici una sola volta all'avvio
+  await Promise.all(allNames.flatMap(name => [
+    dbs[name].collection('vehicles').createIndex({ route_id: 1 }),
+    dbs[name].collection('vehicles').createIndex({ trip_id: 1 }),
+    dbs[name].collection('alerts').createIndex({ route_ids: 1 }),
+  ]));
+
   console.log(`[worker] Avviato — realtime: [${REALTIME_CITIES.map(c=>c.name).join(', ')}] veicoli: [${VEHICLE_CITIES.map(c=>c.name).join(', ')}] alert: [${ALERT_CITIES.map(c=>c.name).join(', ')}]`);
 
   async function runRealtime() {

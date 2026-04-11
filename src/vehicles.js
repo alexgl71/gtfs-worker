@@ -88,7 +88,6 @@ async function fetchVehicles(db, cityName, url) {
     await col.deleteMany({});
     if (vehicles.length > 0) {
       await col.insertMany(vehicles);
-      await col.createIndex({ route_id: 1 });
     }
 
     const ms = Math.round(performance.now() - t);
