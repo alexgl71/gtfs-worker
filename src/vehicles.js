@@ -62,7 +62,7 @@ async function fetchVehicles(db, cityName, url) {
     const isJson = JSON_CITIES.has(cityName);
     const response = await axios.get(url, {
       responseType: isJson ? 'json' : 'arraybuffer',
-      timeout: 30000,
+      timeout: 60000,
       headers: { 'User-Agent': 'gtfs-worker/1.0' },
     });
 

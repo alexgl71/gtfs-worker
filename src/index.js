@@ -1,5 +1,5 @@
 // Env vars: REMOTE_URI + REALTIME_URL_* + VEHICLES_URL_* + ALERTS_URL_*
-// TripUpdates ogni 30s, Vehicles ogni 30s, Alerts ogni 10min.
+// TripUpdates ogni 90s, Vehicles ogni 90s, Alerts ogni 10min.
 // Attivo solo dalle 07:00 alle 23:00 UTC+2.
 
 require('dotenv').config();
@@ -69,7 +69,7 @@ async function main() {
   }
 
   if (isOperatingHours()) { await runRealtime(); await runAlerts(); }
-  setInterval(() => { if (isOperatingHours()) runRealtime(); }, 60000);
+  setInterval(() => { if (isOperatingHours()) runRealtime(); }, 90000);
   setInterval(() => { if (isOperatingHours()) runAlerts(); }, 600000);
 }
 
